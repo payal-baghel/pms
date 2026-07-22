@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_application_1/main.dart';
-import 'package:flutter_application_1/services/api_service.dart';
+import 'package:flutter_application_1/user_authentication/services/api_service.dart';
 import 'package:flutter_application_1/user_authentication/models/app_localizations.dart';
 import 'package:flutter_application_1/user_authentication/view/welcome.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';

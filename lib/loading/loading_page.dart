@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import '../../utils/barcode_decoder.dart';
+import '../utils/barcode_decoder.dart';
 import 'package:flutter_datawedge/flutter_datawedge.dart';
 
 class LoadingPage extends StatefulWidget {

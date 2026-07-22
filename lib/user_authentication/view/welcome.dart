@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_application_1/l10n/view/loading_page.dart';
+import 'package:flutter_application_1/loading/loading_page.dart';
 import 'package:flutter_application_1/user_authentication/models/app_localizations.dart';
 
 class WelcomePage extends StatelessWidget {
