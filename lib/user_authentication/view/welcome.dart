@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_application_1/loading/loading_page.dart';
+import 'package:flutter_application_1/loading/loading.dart';
+import 'package:flutter_application_1/scanning/scanning.dart';
 import 'package:flutter_application_1/user_authentication/models/app_localizations.dart';
 
 class WelcomePage extends StatelessWidget {
@@ -97,7 +98,7 @@ class WelcomePage extends StatelessWidget {
                   context,
                   loc.unloading,
                   Icons.inventory,
-                  const LoadingPage(),
+                  const ScanningPage(),
                 ),
               ],
             ),
@@ -111,14 +112,14 @@ class WelcomePage extends StatelessWidget {
                   context,
                   loc.reports,
                   Icons.bar_chart,
-                  const LoadingPage(),
+                  const ScanningPage(),
                 ),
 
                 buildTile(
                   context,
                   loc.prrStatus,
                   Icons.search,
-                  const LoadingPage(),
+                  const ScanningPage(),
                 ),
               ],
             ),

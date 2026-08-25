@@ -1,0 +1,23 @@
+{
+  "loginTitle": "लॉगिन",
+  "username": "उपयोगकर्ता नाम",
+  "password": "पासवर्ड",
+  "stationCode": "स्टेशन कोड",
+  "submit": "जमा करें",
+  "cancel": "रद्द करें",
+  "invalidLogin": "अमान्य लॉगिन जानकारी",
+  "appVersion": "ऐप संस्करण. 3.5",
+  "appTypeOnline": "ऐप प्रकार ऑनलाइन है",
+  "deviceId": "डिवाइस आईडी : {id}",
+  "@deviceId": {
+    "placeholders": {
+      "id": {}
+    }
+  },
+  "dashboardTitle": "पार्सल प्रबंधन प्रणाली",
+  
+  "loading": "लोडिंग",
+  "unloading": "अनलोडिंग",
+  "reports": "रिपोर्ट्स",
+  "prrStatus": "पीआरआर स्थिति"
+}

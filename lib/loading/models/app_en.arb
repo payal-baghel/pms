@@ -1,0 +1,22 @@
+{
+  "loginTitle": "Login",
+  "username": "User ID",
+  "password": "Password",
+  "stationCode": "Station Code",
+  "submit": "LOGIN",
+  
+  "invalidLogin": "Invalid Login Credentials",
+  "appVersion": "App Version. 3.5",
+  "appType": "AppType is Test",
+  "deviceId": "Device ID : {id}",
+  "@deviceId": {
+    "placeholders": {
+      "id": {}
+    }
+  },
+  "dashboardTitle": "PARCEL MANAGEMENT SYSTEM",
+  "loading": "Loading",
+  "unloading": "Unloading",
+  "reports": "Reports",
+  "prrStatus": "PRR Status"
+}

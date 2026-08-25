@@ -3,14 +3,14 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import '../utils/barcode_decoder.dart';
 import 'package:flutter_datawedge/flutter_datawedge.dart';
 
-class LoadingPage extends StatefulWidget {
-  const LoadingPage({super.key});
+class ScanningPage extends StatefulWidget {
+  const ScanningPage({super.key});
 
   @override
-  State<LoadingPage> createState() => _LoadingPageState();
+  State<ScanningPage> createState() => _ScanningPageState();
 }
 
-class _LoadingPageState extends State<LoadingPage> {
+class _ScanningPageState extends State<ScanningPage> {
   List<Map<String, dynamic>> records = [];
   Set<String> scannedBarcodes = {};
 
