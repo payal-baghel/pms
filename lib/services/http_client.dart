@@ -9,11 +9,7 @@ class ApiClient {
 
     // Set proxy
     httpClient.findProxy = (Uri uri) {
-      return "PROXY 172.16.1.61:8080";
-      // OR
-      // return "PROXY proxy.company.com:8080";
-      // OR
-      // return "DIRECT"; // No proxy
+      return "DIRECT"; // No proxy - works outside office network
     };
 
     // Ignore SSL certificate (Only for testing)

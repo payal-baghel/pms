@@ -8,6 +8,15 @@ class LoginService {
   static const String userloginUrl =
       "https://parcel.indianrail.gov.in/PMSRestServices/services/PMSStatus/validateUser/";
 
+  // Credentials of the logged-in user (used by other services like getWagonMaster)
+  static String? loggedInUserId;
+  static String? loggedInPassword;
+  static String? loggedInStation;
+
+  // Session cookie returned by the server on successful login.
+  // Some services (e.g. getWagonMaster) require it to return data.
+  static String? sessionCookie;
+
   static Future<bool> login(
     String username,
     String password,
@@ -28,8 +37,21 @@ class LoginService {
       print("STATUS CODE: ${response.statusCode}");
       print("API Response: ${response.body}");
 
+      // Capture the session cookie from the login response
+      final setCookie = response.headers['set-cookie'];
+      if (setCookie != null && setCookie.isNotEmpty) {
+        sessionCookie = setCookie.split(';').first.trim();
+        print("Session Cookie: $sessionCookie");
+      }
+
       if (response.statusCode == 200) {
-        return response.body.toLowerCase().contains("true");
+        final success = response.body.toLowerCase().contains("true");
+        if (success) {
+          loggedInUserId = username;
+          loggedInPassword = password;
+          loggedInStation = station;
+        }
+        return success;
       } else {
         return false;
       }

@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:device_info_plus/device_info_plus.dart';
-import 'package:flutter_application_1/main.dart';
-import 'package:flutter_application_1/services/login_api.dart';
-import 'package:flutter_application_1/user_authentication/models/app_localizations.dart';
-import 'package:flutter_application_1/user_authentication/view/welcome.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-
+import 'package:flutter_application_1/l110/app_localizations.dart';
+import 'package:flutter_application_1/pages/home/home_provider.dart';
+import 'package:flutter_application_1/pages/home/welcome.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_application_1/pages/login/login_provider.dart';
+import 'package:provider/provider.dart';
 
 class LoginPage extends StatefulWidget {
   final VoidCallback onLanguageToggle;
@@ -27,51 +25,13 @@ class _LoginPageState extends State<LoginPage> {
   final passwordController = TextEditingController();
   final stationController = TextEditingController();
 
-  String deviceId = "Loading...";
-
   @override
   void initState() {
     super.initState();
-    getDeviceId();
-  }
 
-  Future<void> getDeviceId() async {
-    final deviceInfo = DeviceInfoPlugin();
-
-    try {
-      final androidInfo = await deviceInfo.androidInfo;
-      setState(() {
-        deviceId = androidInfo.id;
-      });
-    } catch (e) {
-      setState(() {
-        deviceId = "Unknown";
-      });
-    }
-  }
-
-  Future<void> login() async {
-    final loc = AppLocalizations.of(context)!;
-
-    final username = usernameController.text.trim();
-    final password = passwordController.text.trim();
-    final station = stationController.text.trim();
-
-    final isValid = await LoginService.login(username, password, station);
-    if (!mounted) return;
-
-    if (isValid) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => WelcomePage(username: username),
-        ),
-      );
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(loc.invalidLogin)));
-    }
+    Future.microtask(() {
+      context.read<LoginProvider>().getDeviceId();
+    });
   }
 
   @override
@@ -85,18 +45,23 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context)!;
+    final loginProvider = context.watch<LoginProvider>();
 
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 6, 133, 172),
+
       appBar: AppBar(
         backgroundColor: const Color.fromARGB(36, 117, 136, 221),
         title: const Text("Parcel Management System"),
       ),
+
       body: SafeArea(
         child: SingleChildScrollView(
           child: Column(
             children: [
               const SizedBox(height: 10),
+
+              // LANGUAGE BUTTON
               Align(
                 alignment: Alignment.centerRight,
                 child: Padding(
@@ -111,7 +76,10 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
               ),
+
               const SizedBox(height: 20),
+
+              // LOGIN TITLE
               Align(
                 alignment: Alignment.centerLeft,
                 child: Padding(
@@ -126,7 +94,10 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
               ),
+
               const SizedBox(height: 40),
+
+              // LOGIN BOX
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 25),
                 child: Container(
@@ -134,6 +105,7 @@ class _LoginPageState extends State<LoginPage> {
                   color: Colors.white,
                   child: Column(
                     children: [
+                      // USERNAME
                       TextField(
                         controller: usernameController,
                         textCapitalization: TextCapitalization.sentences,
@@ -147,12 +119,15 @@ class _LoginPageState extends State<LoginPage> {
                         ],
                         decoration: InputDecoration(
                           hintText: loc.username,
-                          fillColor: Color(0xFFFFFFFF),
+                          fillColor: const Color(0xFFFFFFFF),
                           suffixIcon: const Icon(Icons.person),
                           border: InputBorder.none,
                         ),
                       ),
+
                       const Divider(),
+
+                      // PASSWORD
                       TextField(
                         controller: passwordController,
                         obscureText: true,
@@ -162,7 +137,10 @@ class _LoginPageState extends State<LoginPage> {
                           border: InputBorder.none,
                         ),
                       ),
+
                       const Divider(),
+
+                      // STATION CODE
                       TextField(
                         controller: stationController,
                         decoration: InputDecoration(
@@ -171,8 +149,10 @@ class _LoginPageState extends State<LoginPage> {
                           border: InputBorder.none,
                         ),
                       ),
+
                       const Divider(),
                       const SizedBox(height: 30),
+
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 25),
                         child: Column(
@@ -189,12 +169,69 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                   foregroundColor: Colors.white,
                                 ),
-                                onPressed: login,
-                                child: Text(loc.submit),
+
+                                // LOGIN BUTTON
+                                onPressed: loginProvider.isLoading
+                                    ? null
+                                    : () async {
+                                        final username = usernameController.text
+                                            .trim();
+
+                                        final password = passwordController.text
+                                            .trim();
+
+                                        final station = stationController.text
+                                            .trim();
+
+                                        final isValid = await context
+                                            .read<LoginProvider>()
+                                            .login(username, password, station);
+
+                                        if (!mounted) return;
+
+                                        if (isValid) {
+                                          // Save login information
+                                          context
+                                              .read<HomeProvider>()
+                                              .setUserData(
+                                                username: username,
+                                                station: station,
+                                              );
+
+                                          // Go to Home
+                                          Navigator.pushReplacement(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (context) =>
+                                                  const WelcomePage(),
+                                            ),
+                                          );
+                                        } else {
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(loc.invalidLogin),
+                                            ),
+                                          );
+                                        }
+                                      },
+
+                                child: loginProvider.isLoading
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Text(loc.submit),
                               ),
                             ),
+
                             const SizedBox(height: 10),
-                            SizedBox(width: double.infinity),
+                            const SizedBox(width: double.infinity),
                           ],
                         ),
                       ),
@@ -204,6 +241,8 @@ class _LoginPageState extends State<LoginPage> {
               ),
 
               const SizedBox(height: 150),
+
+              // APP INFORMATION
               Padding(
                 padding: const EdgeInsets.only(bottom: 20),
                 child: Column(
@@ -212,13 +251,16 @@ class _LoginPageState extends State<LoginPage> {
                       loc.appType,
                       style: const TextStyle(fontSize: 20, color: Colors.black),
                     ),
+
                     const SizedBox(height: 10),
+
                     Text(
                       loc.appVersion,
                       style: const TextStyle(fontSize: 20, color: Colors.black),
                     ),
+
                     Text(
-                      loc.deviceId(deviceId),
+                      loc.deviceId(loginProvider.deviceId),
                       style: const TextStyle(fontSize: 20, color: Colors.black),
                     ),
                   ],
