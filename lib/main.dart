@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_application_1/pages/addPrr/add_prr_provider.dart';
 import 'package:flutter_application_1/pages/home/home_provider.dart';
+import 'package:flutter_application_1/pages/loading/loading_provider.dart';
+import 'package:flutter_application_1/pages/loadingSummary/loading_provider.dart';
 import 'package:flutter_application_1/pages/login/login_provider.dart';
+import 'package:flutter_application_1/pages/scanData/scan_data_provider.dart';
 import 'package:flutter_application_1/pages/splash/splash_provider.dart';
 import 'package:flutter_application_1/pages/splash/splash_screen.dart';
 import 'package:flutter_application_1/l110/app_localizations.dart';
@@ -16,6 +20,10 @@ void main() async {
         ChangeNotifierProvider(create: (_) => SplashViewModel()),
         ChangeNotifierProvider(create: (_) => LoginProvider()),
         ChangeNotifierProvider(create: (_) => HomeProvider()),
+        ChangeNotifierProvider(create: (_) => LoadingProvider()),
+        ChangeNotifierProvider(create: (_) => LoadingSummaryProvider()),
+        ChangeNotifierProvider(create: (_) => ScanDataProvider()),
+        ChangeNotifierProvider(create: (_) => AddPrrProvider()),
       ],
       child: const ParcelApp(),
     ),

@@ -4,12 +4,7 @@ class TrainUser {
   final String? stncode;
   final String? reglevel;
 
-  const TrainUser({
-    this.userid,
-    this.username,
-    this.stncode,
-    this.reglevel,
-  });
+  const TrainUser({this.userid, this.username, this.stncode, this.reglevel});
 
   factory TrainUser.fromJson(Map<String, dynamic> json) {
     String? value(Object? v) => v?.toString();
@@ -75,14 +70,20 @@ class TrainStop {
 
     final usrJson = json['usrVO'];
     return TrainStop(
-      stnCode: value(json['stnCode']),
+      stnCode: value(
+        json['stnCode'] ??
+            json['StnCode'] ??
+            json['stn_code'] ??
+            json['stncode'] ??
+            json['STNCODE'],
+      ),
       distance: value(json['distance']),
       dayCnt: value(json['dayCnt']),
       fslrquota: value(json['fslrquota']),
       rslrquota: value(json['rslrquota']),
-      ms1Rquota: value(json['ms1rquota']),
-      vp1Quota: value(json['vp1quota']),
-      vp2Quota: value(json['vp2quota']),
+      ms1Rquota: value(json['mslrquota'] ?? json['ms1rquota']),
+      vp1Quota: value(json['vp1Quota'] ?? json['vp1quota']),
+      vp2Quota: value(json['vp2Quota'] ?? json['vp2quota']),
       owningRly: value(json['owningRly']),
       zone: value(json['zone']),
       route: value(json['route']),
@@ -130,20 +131,37 @@ class TrainDetails {
     List<TrainStop> parseStops(Object? raw) {
       if (raw is! List) return const [];
       return raw
-          .whereType<Map>()
-          .map((e) => TrainStop.fromJson(Map<String, dynamic>.from(e)))
+          .map((e) {
+            // if it is a plain string list, treat each entry as a station code
+            if (e is String) return TrainStop(stnCode: e);
+            if (e is Map) {
+              return TrainStop.fromJson(Map<String, dynamic>.from(e));
+            }
+            return null;
+          })
+          .whereType<TrainStop>()
           .toList();
     }
 
     return TrainDetails(
-      trainNo: value(json['trainNo']),
-      trainName: value(json['trainName']),
-      trainType: value(json['trainType']),
-      trainDrctn: value(json['trainDrctn']),
+      trainNo: value(json['trainNo'] ?? json['trainno'] ?? json['train_no']),
+      trainName: value(
+        json['trainName'] ?? json['train_name'] ?? json['trainname'],
+      ),
+      trainType: value(json['trainType'] ?? json['train_type']),
+      trainDrctn: value(json['trainDrctn'] ?? json['train_drctn']),
       otherDesc: value(json['other_desc']),
       validity: value(json['validity']),
-      decription: value(json['Decription']),
-      trnstpg: parseStops(json['trnstpg']),
+      decription: value(
+        json['decription'] ?? json['Decription'] ?? json['description'],
+      ),
+      trnstpg: parseStops(
+        json['trnstpg'] ??
+            json['trn_htpg'] ??
+            json['trnHtpg'] ??
+            json['halt_stn'] ??
+            json['stations'],
+      ),
     );
   }
 }

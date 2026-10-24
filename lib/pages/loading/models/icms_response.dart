@@ -81,6 +81,21 @@ class IcmsResponse {
   final String? decription;
   final List<IcmStation> stations;
 
+  // Train detail enrichment (from the first vStationList entry / root)
+  final String src;
+  final String dstn;
+  final String jStation;
+  final String trainNo;
+  final String trainType;
+  final String trainSubType;
+  final String stdAtStation;
+  final String delayDep;
+  final String departureCoachPosition;
+  final String arrivalCoachPosition;
+  final bool hasDeparted;
+  final bool hasArrived;
+  final String lastUpdatedOn;
+
   const IcmsResponse({
     this.message = const NtesRestServiceMessage(),
     this.vStationList = const [],
@@ -93,20 +108,39 @@ class IcmsResponse {
     this.validity,
     this.decription,
     this.stations = const [],
+    this.src = "",
+    this.dstn = "",
+    this.jStation = "",
+    this.trainNo = "",
+    this.trainType = "",
+    this.trainSubType = "",
+    this.stdAtStation = "",
+    this.delayDep = "",
+    this.departureCoachPosition = "",
+    this.arrivalCoachPosition = "",
+    this.hasDeparted = false,
+    this.hasArrived = false,
+    this.lastUpdatedOn = "",
   });
 
   factory IcmsResponse.fromJson(Map<String, dynamic> json) {
     String? value(Object? v) => v?.toString();
 
     final msgJson = json['restServiceMessage'];
+
+    final rawList = json['vStationList'];
+    final firstStation = rawList is List && rawList.isNotEmpty
+        ? (rawList.first is Map
+              ? Map<String, dynamic>.from(rawList.first as Map)
+              : const <String, dynamic>{})
+        : const <String, dynamic>{};
+    String? firstValue(Object? v) => v?.toString();
+
     return IcmsResponse(
       message: msgJson is Map
-          ? NtesRestServiceMessage.fromJson(
-              Map<String, dynamic>.from(msgJson))
+          ? NtesRestServiceMessage.fromJson(Map<String, dynamic>.from(msgJson))
           : const NtesRestServiceMessage(),
-      vStationList: json['vStationList'] is List
-          ? (json['vStationList'] as List)
-          : const [],
+      vStationList: rawList is List ? rawList : const [],
       platform: value(json['Platform']),
       std: value(json['STD']),
       etd: value(json['ETD']),
@@ -115,7 +149,27 @@ class IcmsResponse {
       trainStartDate: value(json['TrainStartDate']),
       validity: value(json['validity']),
       decription: value(json['Decription']) ?? value(json['Description']),
-      stations: _parseStations(json['vStationList']),
+      stations: _parseStations(rawList),
+      src: firstValue(firstStation['src']) ?? value(json['SRC']) ?? "",
+      dstn: firstValue(firstStation['dstn']) ?? value(json['DSTN']) ?? "",
+      jStation: firstValue(firstStation['jStation']) ?? "",
+      trainNo:
+          firstValue(firstStation['trainNo']) ?? value(json['trainNo']) ?? "",
+      trainType:
+          firstValue(firstStation['trainType']) ??
+          value(json['trainType']) ??
+          "",
+      trainSubType: firstValue(firstStation['trainSubType']) ?? "",
+      stdAtStation:
+          firstValue(firstStation['jsSTD']) ?? value(json['STD']) ?? "",
+      delayDep: firstValue(firstStation['jsDelayDep']) ?? "",
+      departureCoachPosition:
+          firstValue(firstStation['jsDepartureCoachPosition']) ?? "",
+      arrivalCoachPosition:
+          firstValue(firstStation['jsArrivalCoachPosition']) ?? "",
+      hasDeparted: (firstStation['jsHasDeparted'] ?? 0) == 1,
+      hasArrived: (firstStation['jsHasArrived'] ?? 0) == 1,
+      lastUpdatedOn: firstValue(firstStation['lastUpdatedOn']) ?? "",
     );
   }
 
@@ -132,14 +186,22 @@ class IcmsResponse {
 
   bool get isValid => message.inputValid;
 
-  String get trainName =>
-      stations.isNotEmpty ? stations.first.trainName : "";
+  bool get isFound =>
+      message.serviceDataFoundFlag == "Y" &&
+      (stations.isNotEmpty || trainNo.isNotEmpty);
+
+  String get jStationName =>
+      stations.isNotEmpty ? stations.first.jsStationName : "";
+
+  String get trainName => stations.isNotEmpty ? stations.first.trainName : "";
 
   String get platformNumber => stations.isNotEmpty
-      ? (stations.firstWhere(
-          (s) => s.jsPfNumber.isNotEmpty,
-          orElse: () => const IcmStation(),
-        ).jsPfNumber)
+      ? (stations
+            .firstWhere(
+              (s) => s.jsPfNumber.isNotEmpty,
+              orElse: () => const IcmStation(),
+            )
+            .jsPfNumber)
       : "";
 
   bool stopsAtStation(String stationCode) {

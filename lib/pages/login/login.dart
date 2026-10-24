@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/l110/app_localizations.dart';
 import 'package:flutter_application_1/pages/home/home_provider.dart';
-import 'package:flutter_application_1/pages/home/welcome.dart';
+import 'package:flutter_application_1/pages/loadingSummary/loading_provider.dart';
+import 'package:flutter_application_1/pages/splash/splash_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_application_1/pages/login/login_provider.dart';
+import 'package:flutter_application_1/services/login_api.dart';
+import 'package:flutter_application_1/widgets/pms_appbar.dart';
 import 'package:provider/provider.dart';
 
 class LoginPage extends StatefulWidget {
@@ -24,6 +27,7 @@ class _LoginPageState extends State<LoginPage> {
   final usernameController = TextEditingController();
   final passwordController = TextEditingController();
   final stationController = TextEditingController();
+  bool _obscurePassword = true;
 
   @override
   void initState() {
@@ -48,12 +52,7 @@ class _LoginPageState extends State<LoginPage> {
     final loginProvider = context.watch<LoginProvider>();
 
     return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 6, 133, 172),
-
-      appBar: AppBar(
-        backgroundColor: const Color.fromARGB(36, 117, 136, 221),
-        title: const Text("Parcel Management System"),
-      ),
+      appBar: const PMSAppBar(title: "Parcel Management System"),
 
       body: SafeArea(
         child: SingleChildScrollView(
@@ -130,11 +129,50 @@ class _LoginPageState extends State<LoginPage> {
                       // PASSWORD
                       TextField(
                         controller: passwordController,
-                        obscureText: true,
+                        obscureText: _obscurePassword,
+                        // Matching the username field, the typed value is
+                        // forced to uppercase via the same input formatter.
+                        textCapitalization: TextCapitalization.sentences,
+                        autocorrect: false,
+                        enableSuggestions: false,
+                        inputFormatters: [
+                          TextInputFormatter.withFunction((oldValue, newValue) {
+                            return newValue.copyWith(
+                              text: newValue.text.toUpperCase(),
+                              selection: newValue.selection,
+                            );
+                          }),
+                        ],
                         decoration: InputDecoration(
                           hintText: loc.password,
-                          suffixIcon: const Icon(Icons.visibility),
                           border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 16,
+                          ),
+                          // Each button sets the target state directly instead of
+                          // toggling, so the icon and obscureText can never
+                          // disagree with each other.
+                          suffixIcon: _obscurePassword
+                              ? IconButton(
+                                  icon: const Icon(
+                                    Icons.visibility,
+                                    size: 22,
+                                    color: Colors.black54,
+                                  ),
+                                  tooltip: "Show password",
+                                  onPressed: () =>
+                                      setState(() => _obscurePassword = false),
+                                )
+                              : IconButton(
+                                  icon: const Icon(
+                                    Icons.visibility_off,
+                                    size: 22,
+                                    color: Colors.black54,
+                                  ),
+                                  tooltip: "Hide password",
+                                  onPressed: () =>
+                                      setState(() => _obscurePassword = true),
+                                ),
                         ),
                       ),
 
@@ -143,6 +181,15 @@ class _LoginPageState extends State<LoginPage> {
                       // STATION CODE
                       TextField(
                         controller: stationController,
+                        textCapitalization: TextCapitalization.characters,
+                        inputFormatters: [
+                          TextInputFormatter.withFunction(
+                            (oldValue, newValue) => newValue.copyWith(
+                              text: newValue.text.toUpperCase(),
+                              selection: newValue.selection,
+                            ),
+                          ),
+                        ],
                         decoration: InputDecoration(
                           hintText: loc.stationCode,
                           suffixIcon: const Icon(Icons.train),
@@ -177,8 +224,13 @@ class _LoginPageState extends State<LoginPage> {
                                         final username = usernameController.text
                                             .trim();
 
-                                        final password = passwordController.text
-                                            .trim();
+                                        // Password is NOT trimmed: some PMS
+                                        // passwords legitimately contain
+                                        // leading/trailing spaces. Sending the
+                                        // exact typed value avoids a silent
+                                        // "Invalid login" for a valid user.
+                                        final password =
+                                            passwordController.text;
 
                                         final station = stationController.text
                                             .trim();
@@ -198,14 +250,22 @@ class _LoginPageState extends State<LoginPage> {
                                                 station: station,
                                               );
 
-                                          // Go to Home
-                                          Navigator.pushReplacement(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder: (context) =>
-                                                  const WelcomePage(),
-                                            ),
-                                          );
+                                          // Sync master data after login:
+                                          // fetch Pkg Condn + Pkg Desc masters
+                                          // from API and cache them into
+                                          // M_PKGCONDN / M_PKG_DESC (local DB).
+                                          context
+                                              .read<LoadingSummaryProvider>()
+                                              .loadPkgCondnMasters();
+                                          context
+                                              .read<LoadingSummaryProvider>()
+                                              .loadPkgDescMasters();
+
+                                          // Inform the root UI that the user
+                                          // is logged in (shows Welcome).
+                                          context
+                                              .read<SplashViewModel>()
+                                              .setLoggedIn(true);
                                         } else {
                                           ScaffoldMessenger.of(
                                             context,
@@ -247,8 +307,13 @@ class _LoginPageState extends State<LoginPage> {
                 padding: const EdgeInsets.only(bottom: 20),
                 child: Column(
                   children: [
+                    // Shows the mode that was actually chosen on the
+                    // Application Mode page, so it cannot disagree with the
+                    // APPTYPE value sent to the server.
                     Text(
-                      loc.appType,
+                      widget.currentLocale.languageCode == 'hi'
+                          ? 'ऐप प्रकार: ${LoginService.appType}'
+                          : 'AppType: ${LoginService.appType}',
                       style: const TextStyle(fontSize: 20, color: Colors.black),
                     ),
 

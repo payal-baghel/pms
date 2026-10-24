@@ -17,6 +17,11 @@ class LoginService {
   // Some services (e.g. getWagonMaster) require it to return data.
   static String? sessionCookie;
 
+  // Application mode chosen on the Application Mode page: "Test" or "Online".
+  // All PMS REST services (login, wagon master, platform master, etc.) send
+  // this as their APPTYPE / strapptype value.
+  static String appType = "Test";
+
   static Future<bool> login(
     String username,
     String password,
@@ -30,11 +35,14 @@ class LoginService {
           "userid": username,
           "password": password,
           "stncode": station,
-          "strapptype": "Test",
+          "strapptype": appType,
         }),
       );
 
       print("STATUS CODE: ${response.statusCode}");
+      print(
+        "LOGIN REQUEST -> userid: [$username] stncode: [$station] strapptype: [$appType]",
+      );
       print("API Response: ${response.body}");
 
       // Capture the session cookie from the login response

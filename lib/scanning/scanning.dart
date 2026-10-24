@@ -1,10 +1,24 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../utils/barcode_decoder.dart';
+import '../widgets/pms_appbar.dart';
 import 'package:flutter_datawedge/flutter_datawedge.dart';
+import '../database_helper.dart';
+import '../pages/addPrr/add_prr_provider.dart';
+import '../services/scanner_broadcast.dart';
+import '../services/load_capacity.dart';
+import '../services/train_session.dart';
+import '../widgets/pms_alert.dart';
 
 class ScanningPage extends StatefulWidget {
-  const ScanningPage({super.key});
+  /// When true (Left Over Pkg = ON) the same QR may be scanned again without
+  /// the "already scanned" alert. When false (Left Over Pkg = OFF) a repeated
+  /// QR shows the "already scanned" alert.
+  final bool allowMultipleScan;
+
+  const ScanningPage({super.key, this.allowMultipleScan = false});
 
   @override
   State<ScanningPage> createState() => _ScanningPageState();
@@ -16,47 +30,303 @@ class _ScanningPageState extends State<ScanningPage> {
 
   List<bool> selectedRows = [];
 
-  void addOrMergeRecord(Map<String, dynamic> result) {
-    String barcode = result["rawBarcode"] ?? "";
+  // Hardware scanner broadcast stream (Flutter port of the Cordova
+  // ScannerPlugin: action "android.decode.scan_result", extra "code_data").
+  StreamSubscription<String>? _hardwareScanSub;
 
-    if (scannedBarcodes.contains(barcode)) {
+  @override
+  void initState() {
+    super.initState();
+    _hardwareScanSub = ScannerBroadcast.scans.listen(
+      _onHardwareScan,
+      onError: (e) => debugPrint("Hardware scan stream error: $e"),
+    );
+  }
+
+  @override
+  void dispose() {
+    _hardwareScanSub?.cancel();
+    super.dispose();
+  }
+
+  /// Handles a raw scan string pushed by the hardware scanner.
+  /// Mirrors the mentor's plugin logic: GS1 barcodes are longer than 85
+  /// chars and decoded differently from the normal PWB/PRR barcode.
+  void _onHardwareScan(String value) {
+    if (value.isEmpty) return;
+
+    if (value.length > 85) {
+      // GS1 barcode — separate decoder not implemented yet.
+      debugPrint("GS1 barcode received (len=${value.length})");
+      return;
+    }
+
+    final decoded = BarcodeDecoder.decode(value);
+    if (decoded["error"] != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Barcode already scanned"),
-          duration: Duration(seconds: 2),
-        ),
+        const SnackBar(content: Text("Invalid barcode format")),
+      );
+      return;
+    }
+    addOrMergeRecord(decoded);
+  }
+
+  Future<void> addOrMergeRecord(Map<String, dynamic> result) async {
+    if (result["error"] != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Invalid barcode format")),
       );
       return;
     }
 
-    String prr = result["prr"];
+    final String barcode = result["rawBarcode"] ?? "";
+    final String prr = result["prr"].toString();
+    final String newItem = result["itemNo"].toString();
 
-    int existingIndex = records.indexWhere((row) => row["prr"] == prr);
+    final int existingIndex = records.indexWhere(
+      (row) => row["prr"].toString() == prr,
+    );
+
+    // A repeat is the SAME QR (raw barcode) OR the SAME package (PRR + item
+    // number) already scanned. Only blocked when multiple scan is NOT allowed.
+    final bool duplicate =
+        !widget.allowMultipleScan &&
+        (scannedBarcodes.contains(barcode) ||
+            (existingIndex != -1 &&
+                records[existingIndex]["itemNo"]
+                    .toString()
+                    .split('~')
+                    .contains(newItem)));
+
+    if (duplicate) {
+      _showAlreadyScannedDialog();
+      return;
+    }
+
+    // Booking type and item type come from the barcode itself (first digit of
+    // the PWB/PRR), so the BKT column of the Scan Data page is filled
+    // automatically - no dropdown pick needed.
+    final String bookingType = (result["bookingType"]?.toString() ?? "").trim();
+    final String itemType = (result["itemType"]?.toString() ?? "").trim();
+    final double scanWeight = (result["weight"] as num?)?.toDouble() ?? 0;
+
+    // The label also carries the booked values, so the loaded packages and
+    // the loaded weight can be checked against them right away.
+    final int bookedPkg = (result["totalPackets"] as num?)?.toInt() ?? 0;
+    final double bookedWt = _bookedWeightOf(result);
+
+    // What is already loaded for this PWB/PRR: the rows of this session list
+    // plus the local DB row (a scan done before the app was restarted).
+    final dbRow = await DatabaseHelper.instance.getActLoadTlsFallback(
+      actLoadNo: TrainSession.actLoadNo,
+      pwbltno: int.tryParse(prr) ?? 0,
+    );
+    final bool dbRowScanned =
+        (int.tryParse(dbRow?['SCANALL']?.toString() ?? '0') ?? 0) == 1;
+    final int dbLoadedPkg =
+        dbRowScanned
+        ? (int.tryParse(dbRow?['NOOFITEMSLOADED']?.toString() ?? '') ?? 0)
+        : 0;
+    final double dbLoadedWt =
+        dbRowScanned
+        ? (double.tryParse(dbRow?['LDWT']?.toString() ?? '') ?? 0)
+        : 0;
+    final int memLoadedPkg =
+        existingIndex == -1
+            ? 0
+            : ((records[existingIndex]["scannedPackets"] as num?)?.toInt() ?? 0);
+    final double memLoadedWt =
+        existingIndex == -1
+            ? 0
+            : ((records[existingIndex]["weight"] as num?)?.toDouble() ?? 0);
+    final int basePkg = memLoadedPkg > dbLoadedPkg ? memLoadedPkg : dbLoadedPkg;
+    final double baseWt = memLoadedWt > dbLoadedWt ? memLoadedWt : dbLoadedWt;
+
+    // After this scan the PWB/PRR will have these loaded values.
+    final int newPkg = basePkg + 1;
+    final double newWt = baseWt + scanWeight;
+
+    // Loaded packages cannot be more than the booked ones.
+    if (bookedPkg > 0 && newPkg > bookedPkg) {
+      if (!mounted) return;
+      await PmsAlert.show(
+        context,
+        title: "INVALID LD PKG",
+        message:
+            "Loaded package count ($newPkg) cannot exceed the booked package "
+            "count ($bookedPkg) of PWB/PRR $prr.",
+      );
+      return;
+    }
+
+    // Loaded weight cannot be more than the booked weight. When the label
+    // stores the weights rounded to whole kg, a fraction of a kg over the
+    // booked weight is allowed.
+    final double wtTolerance = (result["weightRounded"] == true) ? 1.0 : 0.0;
+    if (bookedWt > 0 && newWt > bookedWt + wtTolerance) {
+      if (!mounted) return;
+      await PmsAlert.show(
+        context,
+        title: "INVALID LD WT",
+        message:
+            "Loaded weight (${newWt.toStringAsFixed(2)} kg) cannot exceed "
+            "the booked weight (${bookedWt.toStringAsFixed(2)} kg) of "
+            "PWB/PRR $prr.",
+      );
+      return;
+    }
+
+    // Vehicle capacity guard: a scan that would take the loaded weight over
+    // the vehicle capacity (e.g. FCFSLR 3.9 T = 3900 kg) is rejected.
+    final capacityKg = await LoadCapacity.capacityKg();
+    if (capacityKg != null) {
+      final dbRowWeight = double.tryParse(dbRow?['LDWT']?.toString() ?? '') ?? 0;
+      final loadedKg = await LoadCapacity.loadedWeightKg();
+      final projected = loadedKg - dbRowWeight + newWt;
+      if (projected > capacityKg) {
+        if (!mounted) return;
+        await PmsAlert.show(
+          context,
+          title: "VEHICLE CAPACITY EXCEEDED",
+          message: LoadCapacity.capacityMessage(
+            totalKg: projected,
+            capacityKg: capacityKg,
+          ),
+        );
+        return;
+      }
+    }
 
     setState(() {
       scannedBarcodes.add(barcode);
 
       if (existingIndex == -1) {
+        // Item Type / Booking Type come from the barcode, not from a
+        // dropdown, so they are only filled when the label carries them.
+        result["itemType"] = itemType;
+        result["bookingType"] = bookingType;
+        // The loaded values include what was already loaded for this PRR.
+        result["scannedPackets"] = newPkg;
+        result["weight"] = newWt;
         records.add(result);
         selectedRows.add(false);
       } else {
-        records[existingIndex]["weight"] =
-            (records[existingIndex]["weight"] as num) +
-            (result["weight"] as num);
-
-        records[existingIndex]["scannedPackets"] =
-            (records[existingIndex]["scannedPackets"] as int) + 1;
-
-        String existingItems = records[existingIndex]["itemNo"].toString();
-        String newItem = result["itemNo"].toString();
-
-        List<String> itemList = existingItems.split(',');
-
-        if (!itemList.contains(newItem)) {
-          records[existingIndex]["itemNo"] = "$existingItems,$newItem";
+        records[existingIndex]["weight"] = newWt;
+        records[existingIndex]["scannedPackets"] = newPkg;
+        if (itemType.isNotEmpty) {
+          records[existingIndex]["itemType"] = itemType;
         }
+        if (bookingType.isNotEmpty) {
+          records[existingIndex]["bookingType"] = bookingType;
+        }
+
+        // Collect every scanned item number of this RR (dedupe) and store
+        // them ascending as "1~2~3~4" / "1~3~4" (left-out items just missing).
+        final items = <int>{};
+        for (final part
+            in records[existingIndex]["itemNo"].toString().split('~')) {
+          final n = int.tryParse(part.trim());
+          if (n != null) items.add(n);
+        }
+        final parsedNew = int.tryParse(newItem.trim());
+        if (parsedNew != null) items.add(parsedNew);
+        final sortedItems = items.toList()..sort();
+        records[existingIndex]["itemNo"] = sortedItems.join('~');
       }
     });
+
+    // Persist the (merged) record to the local DB so it shows up on the Scan
+    // Data screen too, just like a row saved from the Add PWB/PRR form.
+    final targetIndex = existingIndex == -1 ? records.length - 1 : existingIndex;
+    await _saveRecordToDb(records[targetIndex]);
+  }
+
+  /// Booked weight of a parcel, read from the barcode: the total booked
+  /// weight is used, the total chargeable weight is the fallback.
+  double _bookedWeightOf(Map<String, dynamic> record) {
+    final booked = (record["bookedWeight"] as num?)?.toDouble() ?? 0;
+    if (booked > 0) return booked;
+    return (record["totalChargeableWeight"] as num?)?.toDouble() ?? 0;
+  }
+
+  /// Popup shown when the same barcode is scanned a second time.
+  void _showAlreadyScannedDialog() {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text("Already Scanned"),
+        content: const Text("This barcode has already been scanned."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text("OK"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Upserts one scanned record into ACT_LOADTLS_FALLBACK (PK: PWBLTNO +
+  /// ACT_LOADNO), so a camera/device scan and an Add PWB/PRR save write the
+  /// same local row.
+  Future<void> _saveRecordToDb(Map<String, dynamic> record) async {
+    final prr = record["prr"]?.toString() ?? "";
+    // Loaded values (what is really in the vehicle for this PWB/PRR).
+    final weight = (record["weight"] as num?)?.toDouble() ?? 0;
+    final scannedPackets = (record["scannedPackets"] as num?)?.toInt() ?? 0;
+    // Booked values (read from the barcode label).
+    final totalPackets = (record["totalPackets"] as num?)?.toInt() ?? 0;
+    final bookedWeight = (record["bookedWeight"] as num?)?.toDouble() ?? 0;
+    final totalChargeableWeight =
+        (record["totalChargeableWeight"] as num?)?.toDouble() ?? 0;
+    final source = record["source"]?.toString() ?? "";
+    final destination = record["destination"]?.toString() ?? "";
+    final commodityCode = (record["commodityCode"]?.toString() ?? "").trim();
+    final pkgDesc = (record["pkgDesc"]?.toString() ?? "").trim();
+    final scale = (record["scale"]?.toString() ?? "").trim();
+
+    try {
+      await DatabaseHelper.instance.insertActLoadTlsFallback({
+        'ACT_LOADNO': TrainSession.actLoadNo,
+        'PWBLTNO': int.tryParse(prr) ?? 0,
+        // NOT NULL columns without a form field; 0 keeps the row valid.
+        'CONSIGNOR_MOBILE_NO': 0,
+        'CONSIGNEE_MOBILE_NO': 0,
+        'MAJCOMMD':
+            commodityCode.isEmpty
+                ? "0"
+                : AddPrrProvider.comodityShortForm(commodityCode),
+        'NOOFITEMSLOADED': scannedPackets,
+        'NOP_SCANNED': scannedPackets,
+        'PKG_DESC': pkgDesc,
+        'STNFROM': source,
+        'STNCODE': source,
+        'DSTNSTN': destination,
+        'BOOK_DT': record["bookingDate"]?.toString() ?? "",
+        // Booked package count, straight from the label.
+        'BKDPACKAGE': totalPackets,
+        // Booking type + item type, derived from the first digit of the PRR.
+        'BKTYPE': record["bookingType"]?.toString() ?? "",
+        'PKGTYPE': record["itemType"]?.toString() ?? "",
+        // Booked weight vs loaded weight.
+        'BKWT': bookedWeight,
+        'LDWT': weight,
+        'TOTCHRGWT': totalChargeableWeight > 0 ? totalChargeableWeight : bookedWeight,
+        'VEHICLE_NO': TrainSession.vehicle,
+        // 1 = this row came from a barcode SCAN (mentor's flag).
+        'SCANALL': 1,
+        'ITEMNOS': record["itemNo"]?.toString() ?? "",
+        'SCALE': scale.isEmpty ? TrainSession.scale : scale,
+        'LOAD_DT': TrainSession.loadDateTime,
+        'SYSTEM_DT': DateTime.now().millisecondsSinceEpoch,
+      });
+      debugPrint(
+        "Scan saved to ACT_LOADTLS_FALLBACK -> ACT_LOADNO: "
+        "${TrainSession.actLoadNo} | PWBLTNO: $prr | Wt: $weight",
+      );
+    } catch (e) {
+      debugPrint("Scan DB insert error: $e");
+    }
   }
 
   Future<void> openCamera() async {
@@ -93,49 +363,12 @@ class _ScanningPageState extends State<ScanningPage> {
     });
   }
 
-  void editCell(int rowIndex, String key, dynamic currentValue) {
-    TextEditingController controller = TextEditingController(
-      text: currentValue.toString(),
-    );
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text("Edit $key"),
-          content: TextField(
-            controller: controller,
-            decoration: InputDecoration(
-              border: const OutlineInputBorder(),
-              labelText: key,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Cancel"),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  if (key == "weight") {
-                    records[rowIndex][key] =
-                        double.tryParse(controller.text) ?? 0;
-                  } else if (key == "totalPackets" || key == "scannedPackets") {
-                    records[rowIndex][key] = int.tryParse(controller.text) ?? 0;
-                  } else {
-                    records[rowIndex][key] = controller.text;
-                  }
-                });
-
-                Navigator.pop(context);
-              },
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
-    );
+  /// Persists one row's edited Item Type / Booking Type to the local DB.
+  Future<void> _updateRowOption(int rowIndex, String key, String value) async {
+    setState(() {
+      records[rowIndex][key] = value;
+    });
+    await _saveRecordToDb(records[rowIndex]);
   }
 
   double getTotalWeight() {
@@ -161,8 +394,9 @@ class _ScanningPageState extends State<ScanningPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Loading"),
+      appBar: PMSAppBar(
+        title: "Loading",
+        showBackButton: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.delete),
@@ -198,6 +432,8 @@ class _ScanningPageState extends State<ScanningPage> {
                   DataColumn(label: Text("Packets")),
                   DataColumn(label: Text("Scanned")),
                   DataColumn(label: Text("Item")),
+                  DataColumn(label: Text("Item Type")),
+                  DataColumn(label: Text("Booking Type")),
                   DataColumn(label: Text("Source")),
                   DataColumn(label: Text("Dest")),
                   DataColumn(label: Text("Date")),
@@ -218,57 +454,69 @@ class _ScanningPageState extends State<ScanningPage> {
                             },
                           ),
                         ),
+                        DataCell(Text(data["prr"].toString())),
+                        DataCell(Text(data["weight"].toString())),
+                        DataCell(Text(data["totalPackets"].toString())),
+                        DataCell(Text(data["scannedPackets"].toString())),
+                        DataCell(Text(data["itemNo"].toString())),
                         DataCell(
-                          Text(data["prr"].toString()),
-                          onTap: () => editCell(index, "prr", data["prr"]),
-                        ),
-                        DataCell(
-                          Text(data["weight"].toString()),
-                          onTap: () =>
-                              editCell(index, "weight", data["weight"]),
-                        ),
-                        DataCell(
-                          Text(data["totalPackets"].toString()),
-                          onTap: () => editCell(
-                            index,
-                            "totalPackets",
-                            data["totalPackets"],
+                          Builder(
+                            builder: (_) {
+                              final opts = AddPrrProvider.itemTypesForPrr(
+                                data["prr"]?.toString() ?? "",
+                              );
+                              final current =
+                                  data["itemType"]?.toString() ?? "";
+                              return DropdownButton<String>(
+                                value: opts.contains(current) ? current : null,
+                                hint: const Text("Select"),
+                                underline: const SizedBox.shrink(),
+                                items: opts
+                                    .map(
+                                      (t) => DropdownMenuItem(
+                                        value: t,
+                                        child: Text(
+                                          "$t (${AddPrrProvider.itemTypeLabel(t)})",
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (v) {
+                                  if (v != null) {
+                                    _updateRowOption(index, "itemType", v);
+                                  }
+                                },
+                              );
+                            },
                           ),
                         ),
                         DataCell(
-                          Text(data["scannedPackets"].toString()),
-                          onTap: () => editCell(
-                            index,
-                            "scannedPackets",
-                            data["scannedPackets"],
+                          DropdownButton<String>(
+                            value:
+                                (data["bookingType"]?.toString().isNotEmpty ??
+                                    false)
+                                ? data["bookingType"].toString()
+                                : null,
+                            hint: const Text("Select"),
+                            underline: const SizedBox.shrink(),
+                            items: AddPrrProvider.bookingTypes
+                                .map(
+                                  (t) => DropdownMenuItem(
+                                    value: t,
+                                    child: Text(t),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) {
+                              if (v != null) {
+                                _updateRowOption(index, "bookingType", v);
+                              }
+                            },
                           ),
                         ),
-                        DataCell(
-                          Text(data["itemNo"].toString()),
-                          onTap: () =>
-                              editCell(index, "itemNo", data["itemNo"]),
-                        ),
-                        DataCell(
-                          Text(data["source"].toString()),
-                          onTap: () =>
-                              editCell(index, "source", data["source"]),
-                        ),
-                        DataCell(
-                          Text(data["destination"].toString()),
-                          onTap: () => editCell(
-                            index,
-                            "destination",
-                            data["destination"],
-                          ),
-                        ),
-                        DataCell(
-                          Text(data["bookingDate"].toString()),
-                          onTap: () => editCell(
-                            index,
-                            "bookingDate",
-                            data["bookingDate"],
-                          ),
-                        ),
+                        DataCell(Text(data["source"].toString())),
+                        DataCell(Text(data["destination"].toString())),
+                        DataCell(Text(data["bookingDate"].toString())),
                       ],
                     );
                   }),
@@ -295,6 +543,8 @@ class _ScanningPageState extends State<ScanningPage> {
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
+                      const DataCell(Text("")),
+                      const DataCell(Text("")),
                       const DataCell(Text("")),
                       const DataCell(Text("")),
                       const DataCell(Text("")),
@@ -338,7 +588,7 @@ class _CameraScanPageState extends State<CameraScanPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Camera Scanner")),
+      appBar: const PMSAppBar(title: "Camera Scanner", showBackButton: true),
       body: MobileScanner(
         onDetect: (barcodeCapture) {
           if (scanned) return;
@@ -410,7 +660,7 @@ class _DeviceScannerPageState extends State<DeviceScannerPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Device Scanner")),
+      appBar: const PMSAppBar(title: "Device Scanner", showBackButton: true),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),

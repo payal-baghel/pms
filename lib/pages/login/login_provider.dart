@@ -1,4 +1,3 @@
-
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/services/login_api.dart';
@@ -22,20 +21,12 @@ class LoginProvider extends ChangeNotifier {
     }
   }
 
-  Future<bool> login(
-    String username,
-    String password,
-    String station,
-  ) async {
+  Future<bool> login(String username, String password, String station) async {
     _isLoading = true;
     notifyListeners();
 
     try {
-      final isValid = await LoginService.login(
-        username,
-        password,
-        station,
-      );
+      final isValid = await LoginService.login(username, password, station);
       return isValid;
     } catch (e) {
       return false;
@@ -45,4 +36,3 @@ class LoginProvider extends ChangeNotifier {
     }
   }
 }
-

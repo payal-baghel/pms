@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 
 class HomeProvider extends ChangeNotifier {
@@ -18,10 +17,7 @@ class HomeProvider extends ChangeNotifier {
   int get unLoadingSyncPending => _unLoadingSyncPending;
 
   // Save logged-in user information
-  void setUserData({
-    required String username,
-    required String station,
-  }) {
+  void setUserData({required String username, required String station}) {
     _username = username;
     _station = station;
 

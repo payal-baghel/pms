@@ -17,7 +17,9 @@ class WagonMaster {
     return WagonMaster(
       code: value(json['code'] ?? json['wagonCode'] ?? json['wagon_code']),
       wagonType: value(json['wagon_type'] ?? json['wagonType']),
-      codename: value(json['codename'] ?? json['codeName'] ?? json['code_name']),
+      codename: value(
+        json['codename'] ?? json['codeName'] ?? json['code_name'],
+      ),
       capicity: value(json['capicity'] ?? json['capacity']),
     );
   }
